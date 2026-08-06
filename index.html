@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ステージタイマー</title>
+<link rel="stylesheet" href="presentation-timer.css">
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>ステージ<span>タイマー</span></h1>
+    <button class="fs-btn" id="fsOpenBtn">⤢ フルスクリーン</button>
+  </header>
+
+  <div class="tab-bar" id="tabBar"></div>
+
+  <div class="timers-grid" id="timersGrid"></div>
+</div>
+
+<button class="bell-fab" id="bellFab" aria-label="ベルを鳴らす">🔔</button>
+
+<div id="fsOverlay">
+  <div class="fs-tab-bar" id="fsTabBar"></div>
+  <button class="fs-close" id="fsCloseBtn">✕</button>
+  <div id="fsTimersWrap" style="display:flex; flex-direction:column; gap:6vh; align-items:center;"></div>
+  <button class="fs-bell" id="fsBellBtn" aria-label="ベルを鳴らす">🔔</button>
+</div>
+
+<script>
+const ITEM_H = 48;
+
+// ---------- Audio ----------
+let audioCtx = null;
+function ensureCtx(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function playBell(){
+  const ctx = ensureCtx();
+  const now = ctx.currentTime;
+  const freqs = [880, 1318.5, 2217, 3520];
+  const gains = [0.35, 0.22, 0.12, 0.06];
+  freqs.forEach((f, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = f * (1 + (Math.random()-0.5)*0.002);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(gains[i], now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.6);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 2.7);
+  });
+}
+function playAlarm(){
+  const ctx = ensureCtx();
+  const now = ctx.currentTime;
+  const beepTimes = [0, 0.22, 0.44, 0.9, 1.12, 1.34];
+  beepTimes.forEach(t => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 988;
+    gain.gain.setValueAtTime(0.0001, now + t);
+    gain.gain.linearRampToValueAtTime(0.18, now + t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.16);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now + t);
+    osc.stop(now + t + 0.18);
+  });
+}
+
+// ---------- Wheel picker ----------
+function buildWheel(container, max, initial, onChange){
+  container.innerHTML = '';
+  const ul = document.createElement('ul');
+  for(let i=0;i<=max;i++){
+    const li = document.createElement('li');
+    li.textContent = String(i).padStart(2,'0');
+    li.dataset.val = i;
+    ul.appendChild(li);
+  }
+  container.appendChild(ul);
+
+  const items = [...ul.children];
+  function markSelected(idx){
+    items.forEach((li,i)=>li.classList.toggle('selected', i===idx));
+  }
+  function snapTo(idx, smooth){
+    container.scrollTo({top: idx*ITEM_H, behavior: smooth?'smooth':'auto'});
+    markSelected(idx);
+  }
+  snapTo(initial, false);
+  let value = initial;
+  onChange(value);
+
+  let scrollTimer = null;
+  container.addEventListener('scroll', () => {
+    if(scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      const idx = Math.round(container.scrollTop / ITEM_H);
+      const clamped = Math.max(0, Math.min(max, idx));
+      snapTo(clamped, true);
+      value = clamped;
+      onChange(value);
+    }, 110);
+  }, {passive:true});
+
+  items.forEach((li, idx) => {
+    li.addEventListener('click', () => {
+      snapTo(idx, true);
+      value = idx;
+      onChange(value);
+    });
+  });
+
+  return {
+    get: () => value,
+    set: (v) => { snapTo(v, false); value = v; onChange(v); }
+  };
+}
+
+// ---------- Timer logic ----------
+function formatTime(totalSec){
+  totalSec = Math.max(0, Math.round(totalSec));
+  const h = Math.floor(totalSec/3600);
+  const m = Math.floor((totalSec%3600)/60);
+  const s = totalSec%60;
+  if(h>0){
+    return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function createTimer(idx, defaultLabel, tabName, theme){
+  const state = {
+    idx, label: defaultLabel, tabName, theme,
+    h:0, m:5, s:0,
+    remainingMs: 5*60*1000,
+    endTime: null,
+    running:false,
+    intervalId:null,
+    status:'idle' // idle | running | paused | done
+  };
+  return state;
+}
+
+const timers = [
+  createTimer(0, 'Presentation', 'Presentation', 'theme-presentation'),
+  createTimer(1, 'Q&A', 'Q&A', 'theme-qa')
+];
+let activeIdx = 0;
+
+function totalMs(t){ return (t.h*3600 + t.m*60 + t.s)*1000; }
+
+function renderCard(t){
+  const card = document.createElement('div');
+  card.className = `card ${t.theme}`;
+  card.id = `card-${t.idx}`;
+  card.hidden = t.idx !== activeIdx;
+  card.innerHTML = `
+    <div class="card-head">
+      <input class="label-input" value="${t.label}" maxlength="20" />
+      <button class="reset-btn" title="リセット">↺</button>
+    </div>
+    <div class="display-wrap"><div class="display num">${formatTime(t.remainingMs/1000)}</div></div>
+    <div class="wheels" id="wheels-${t.idx}">
+      <div class="wheel-col">
+        <span class="unit-label">時</span>
+        <div class="wheel-scroll" id="w-h-${t.idx}"></div>
+      </div>
+      <div class="wheel-col">
+        <span class="unit-label">分</span>
+        <div class="wheel-scroll" id="w-m-${t.idx}"></div>
+      </div>
+      <div class="wheel-col">
+        <span class="unit-label">秒</span>
+        <div class="wheel-scroll" id="w-s-${t.idx}"></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-start" id="start-${t.idx}">開始</button>
+      <button class="btn btn-pause" id="pause-${t.idx}" disabled>一時停止</button>
+    </div>
+  `;
+  document.getElementById('timersGrid').appendChild(card);
+
+  // set element references BEFORE building wheels, since building wheels
+  // synchronously triggers an initial onChange -> syncFromWheels -> updateDisplay
+  t._card = card;
+  t._display = card.querySelector('.display');
+  t._startBtn = document.getElementById(`start-${t.idx}`);
+  t._pauseBtn = document.getElementById(`pause-${t.idx}`);
+  t._wheelsBox = document.getElementById(`wheels-${t.idx}`);
+
+  // wheels
+  const wH = buildWheel(document.getElementById(`w-h-${t.idx}`), 5, t.h, v=>{ t.h=v; syncFromWheels(t); });
+  const wM = buildWheel(document.getElementById(`w-m-${t.idx}`), 59, t.m, v=>{ t.m=v; syncFromWheels(t); });
+  const wS = buildWheel(document.getElementById(`w-s-${t.idx}`), 59, t.s, v=>{ t.s=v; syncFromWheels(t); });
+  t._wheels = {wH,wM,wS};
+
+  const labelInput = card.querySelector('.label-input');
+  labelInput.addEventListener('input', () => { t.label = labelInput.value; updateFsLabel(t); });
+
+  card.querySelector('.reset-btn').addEventListener('click', () => resetTimer(t));
+  document.getElementById(`start-${t.idx}`).addEventListener('click', () => toggleStartPause(t));
+  document.getElementById(`pause-${t.idx}`).addEventListener('click', () => pauseTimer(t));
+}
+
+function syncFromWheels(t){
+  if(t.status === 'idle'){
+    t.remainingMs = totalMs(t);
+    updateDisplay(t);
+  }
+}
+
+function updateDisplay(t){
+  const secs = t.remainingMs/1000;
+  t._display.textContent = formatTime(secs);
+  t._card.classList.toggle('warn', t.status==='running' && secs<=10 && secs>0);
+  t._card.classList.toggle('running', t.status==='running');
+  t._card.classList.toggle('done', t.status==='done');
+  updateFsDisplay(t);
+  if(t._tabBtn){
+    const sub = t._tabBtn.querySelector('.tab-sub');
+    if(sub) sub.textContent = t.status==='running' ? '進行中' : (t.status==='done' ? '終了' : '');
+  }
+}
+
+function toggleStartPause(t){
+  if(t.status === 'running') return;
+  if(t.status === 'idle' || t.status === 'done'){
+    t.remainingMs = totalMs(t);
+    if(t.remainingMs <= 0){ return; }
+  }
+  t.status = 'running';
+  t.endTime = Date.now() + t.remainingMs;
+  t._wheelsBox.classList.add('locked');
+  t._startBtn.textContent = '再開';
+  t._startBtn.disabled = true;
+  t._pauseBtn.disabled = false;
+  ensureCtx();
+  tickLoop(t);
+}
+
+function tickLoop(t){
+  clearInterval(t.intervalId);
+  t.intervalId = setInterval(() => {
+    if(t.status !== 'running') return;
+    t.remainingMs = t.endTime - Date.now();
+    if(t.remainingMs <= 0){
+      t.remainingMs = 0;
+      t.status = 'done';
+      clearInterval(t.intervalId);
+      t._startBtn.disabled = false;
+      t._startBtn.textContent = '開始';
+      t._pauseBtn.disabled = true;
+      playAlarm();
+    }
+    updateDisplay(t);
+  }, 200);
+}
+
+function pauseTimer(t){
+  if(t.status !== 'running') return;
+  t.status = 'paused';
+  t.remainingMs = Math.max(0, t.endTime - Date.now());
+  clearInterval(t.intervalId);
+  t._startBtn.disabled = false;
+  t._startBtn.textContent = '再開';
+  t._pauseBtn.disabled = true;
+  updateDisplay(t);
+}
+
+function resetTimer(t){
+  clearInterval(t.intervalId);
+  t.status = 'idle';
+  t.remainingMs = totalMs(t);
+  t._wheelsBox.classList.remove('locked');
+  t._startBtn.disabled = false;
+  t._startBtn.textContent = '開始';
+  t._pauseBtn.disabled = true;
+  updateDisplay(t);
+}
+
+timers.forEach(t => renderCard(t));
+timers.forEach(t => updateDisplay(t));
+
+// ---------- Tabs ----------
+function buildTabBar(container, isFs){
+  container.innerHTML = '';
+  timers.forEach(t => {
+    const btn = document.createElement('button');
+    btn.className = `${isFs ? 'fs-tab-btn' : 'tab-btn'} ${t.theme}`;
+    btn.innerHTML = isFs
+      ? t.tabName
+      : `<span>${t.tabName}</span><span class="tab-sub">${t.status==='running' ? '進行中' : ''}</span>`;
+    btn.addEventListener('click', () => switchTab(t.idx));
+    container.appendChild(btn);
+    t[isFs ? '_fsTabBtn' : '_tabBtn'] = btn;
+  });
+  updateTabActive();
+}
+function updateTabActive(){
+  timers.forEach(t => {
+    if(t._tabBtn) t._tabBtn.classList.toggle('active', t.idx === activeIdx);
+    if(t._fsTabBtn) t._fsTabBtn.classList.toggle('active', t.idx === activeIdx);
+  });
+}
+function switchTab(idx){
+  activeIdx = idx;
+  timers.forEach(t => {
+    if(t._card) t._card.hidden = t.idx !== activeIdx;
+    if(t._fsEl) t._fsEl.hidden = t.idx !== activeIdx;
+  });
+  fsOverlayApplyTheme();
+  updateTabActive();
+}
+function fsOverlayApplyTheme(){
+  const active = timers[activeIdx];
+  const fsOverlayEl = document.getElementById('fsOverlay');
+  fsOverlayEl.classList.remove('theme-presentation','theme-qa');
+  fsOverlayEl.classList.add(active.theme);
+}
+
+buildTabBar(document.getElementById('tabBar'), false);
+
+// ---------- Bell ----------
+document.getElementById('bellFab').addEventListener('click', playBell);
+document.getElementById('fsBellBtn').addEventListener('click', playBell);
+
+// ---------- Fullscreen (in-app overlay) ----------
+const fsOverlay = document.getElementById('fsOverlay');
+const fsWrap = document.getElementById('fsTimersWrap');
+
+function buildFsView(){
+  fsWrap.innerHTML = '';
+  timers.forEach(t => {
+    const el = document.createElement('div');
+    el.className = `fs-timer ${t.theme}`;
+    el.id = `fs-timer-${t.idx}`;
+    el.hidden = t.idx !== activeIdx;
+    el.innerHTML = `<div class="fs-label">${t.label}</div><div class="fs-display num">${formatTime(t.remainingMs/1000)}</div>`;
+    fsWrap.appendChild(el);
+    t._fsEl = el;
+    t._fsDisplay = el.querySelector('.fs-display');
+  });
+  buildTabBar(document.getElementById('fsTabBar'), true);
+  fsOverlayApplyTheme();
+}
+function updateFsDisplay(t){
+  if(!t._fsDisplay) return;
+  const secs = t.remainingMs/1000;
+  t._fsDisplay.textContent = formatTime(secs);
+  t._fsEl.classList.toggle('warn', t.status==='running' && secs<=10 && secs>0);
+  t._fsEl.classList.toggle('done', t.status==='done');
+}
+function updateFsLabel(t){
+  if(t._fsEl) t._fsEl.querySelector('.fs-label').textContent = t.label;
+}
+
+// We deliberately do NOT use the native Fullscreen API here: iPad Safari
+// does not support requestFullscreen() on arbitrary elements, and calling
+// it can leave the page in a half-transitioned state where the underlying
+// content bleeds through the overlay. Instead we simulate fullscreen with
+// a fixed, fully opaque overlay and lock background scrolling.
+let savedScrollY = 0;
+
+document.getElementById('fsOpenBtn').addEventListener('click', openFs);
+document.getElementById('fsCloseBtn').addEventListener('click', closeFs);
+
+function openFs(){
+  buildFsView();
+  savedScrollY = window.scrollY || window.pageYOffset || 0;
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${savedScrollY}px`;
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  document.body.style.width = '100%';
+  fsOverlay.classList.add('open');
+}
+function closeFs(){
+  fsOverlay.classList.remove('open');
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  document.body.style.width = '';
+  window.scrollTo(0, savedScrollY);
+}
+</script>
+</body>
+</html>
