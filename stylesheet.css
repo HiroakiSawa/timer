@@ -55,7 +55,7 @@ header{
 header h1{
   font-family:'Space Grotesk',sans-serif;
   font-size:clamp(20px,3vw,26px);
-  font-weight:800;
+  font-weight:600;
   margin:0;
   letter-spacing:0.02em;
 }
@@ -286,6 +286,23 @@ header h1 span{color:var(--amber);}
 .fs-timer.warn .fs-display{color:var(--accent);}
 .fs-timer.done .fs-display{color:var(--red); animation:pulse 0.8s infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+
+.fs-controls{
+  display:flex; gap:16px; justify-content:center;
+  margin-top:clamp(20px,4vh,48px);
+}
+.fs-ctrl-btn{
+  border:none; border-radius:16px;
+  padding:18px 42px;
+  font-family:'Inter',sans-serif; font-weight:700;
+  font-size:clamp(16px,2vw,22px);
+  cursor:pointer;
+}
+.fs-ctrl-start{background:var(--accent); color:var(--accent-text);}
+.fs-ctrl-start:active{filter:brightness(0.88);}
+.fs-ctrl-pause{background:var(--panel-2); color:var(--text); border:2px solid var(--line);}
+.fs-ctrl-pause:active{border-color:var(--accent);}
+.fs-ctrl-btn[disabled]{opacity:0.4;}
 
 .fs-bell{
   position:absolute; bottom:calc(28px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);

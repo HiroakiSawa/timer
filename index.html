@@ -227,6 +227,7 @@ function updateDisplay(t){
   t._card.classList.toggle('running', t.status==='running');
   t._card.classList.toggle('done', t.status==='done');
   updateFsDisplay(t);
+  syncFsButtons(t);
   if(t._tabBtn){
     const sub = t._tabBtn.querySelector('.tab-sub');
     if(sub) sub.textContent = t.status==='running' ? '進行中' : (t.status==='done' ? '終了' : '');
@@ -346,13 +347,31 @@ function buildFsView(){
     el.className = `fs-timer ${t.theme}`;
     el.id = `fs-timer-${t.idx}`;
     el.hidden = t.idx !== activeIdx;
-    el.innerHTML = `<div class="fs-label">${t.label}</div><div class="fs-display num">${formatTime(t.remainingMs/1000)}</div>`;
+    el.innerHTML = `
+      <div class="fs-label">${t.label}</div>
+      <div class="fs-display num">${formatTime(t.remainingMs/1000)}</div>
+      <div class="fs-controls">
+        <button class="fs-ctrl-btn fs-ctrl-start" id="fs-start-${t.idx}">開始</button>
+        <button class="fs-ctrl-btn fs-ctrl-pause" id="fs-pause-${t.idx}" disabled>一時停止</button>
+      </div>
+    `;
     fsWrap.appendChild(el);
     t._fsEl = el;
     t._fsDisplay = el.querySelector('.fs-display');
+    t._fsStartBtn = el.querySelector(`#fs-start-${t.idx}`);
+    t._fsPauseBtn = el.querySelector(`#fs-pause-${t.idx}`);
+    t._fsStartBtn.addEventListener('click', () => toggleStartPause(t));
+    t._fsPauseBtn.addEventListener('click', () => pauseTimer(t));
+    syncFsButtons(t);
   });
   buildTabBar(document.getElementById('fsTabBar'), true);
   fsOverlayApplyTheme();
+}
+function syncFsButtons(t){
+  if(!t._fsStartBtn) return;
+  t._fsStartBtn.textContent = t._startBtn.textContent;
+  t._fsStartBtn.disabled = t._startBtn.disabled;
+  t._fsPauseBtn.disabled = t._pauseBtn.disabled;
 }
 function updateFsDisplay(t){
   if(!t._fsDisplay) return;
