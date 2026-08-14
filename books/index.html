@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>蔵書管理</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="app-header">
+    <div class="header-top">
+      <h1>📚 蔵書管理</h1>
+      <a class="back-link" href="../index.html" title="タイマーアプリへ戻る">⤺ タイマー</a>
+    </div>
+    <div class="search-row">
+      <input type="search" id="searchInput" class="search-input" placeholder="書名・著者で検索…" autocomplete="off">
+      <select id="sortSelect" class="sort-select">
+        <option value="createdAt-desc">登録日が新しい順</option>
+        <option value="createdAt-asc">登録日が古い順</option>
+        <option value="title-asc">書名順</option>
+        <option value="author-asc">著者順</option>
+      </select>
+    </div>
+    <div class="toolbar">
+      <button id="scanBtn" class="btn btn-primary">📷 スキャンして登録</button>
+      <button id="manualBtn" class="btn btn-secondary">✏️ 手入力で登録</button>
+      <div class="toolbar-spacer"></div>
+      <button id="exportJsonBtn" class="btn btn-ghost">⭳ JSON</button>
+      <button id="exportCsvBtn" class="btn btn-ghost">⭳ CSV</button>
+      <button id="importBtn" class="btn btn-ghost">⭱ インポート</button>
+      <input type="file" id="importFile" accept=".json,.csv" hidden>
+    </div>
+  </header>
+
+  <main>
+    <div id="emptyState" class="empty-state" hidden>
+      <p>まだ本が登録されていません。</p>
+      <p>「スキャンして登録」または「手入力で登録」から追加しましょう。</p>
+    </div>
+    <div id="noResultsState" class="empty-state" hidden>
+      <p>該当する本が見つかりませんでした。</p>
+    </div>
+    <div id="bookGrid" class="book-grid"></div>
+  </main>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<!-- Scan Modal -->
+<div id="scanModal" class="modal-overlay" hidden>
+  <div class="modal scan-modal">
+    <div class="modal-head">
+      <h2>バーコードをスキャン</h2>
+      <button class="modal-close" data-close-scan>✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint">本の裏表紙にあるISBNバーコード（978/979で始まるもの）を、カメラの枠内に合わせてください。</p>
+      <div id="scanReader" class="scan-reader"></div>
+      <div id="scanError" class="scan-error" hidden></div>
+    </div>
+  </div>
+</div>
+
+<!-- Form Modal (add / edit) -->
+<div id="formModal" class="modal-overlay" hidden>
+  <div class="modal form-modal">
+    <div class="modal-head">
+      <h2 id="formTitle">本を登録</h2>
+      <button class="modal-close" data-close-form>✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="dupNotice" class="notice notice-warn" hidden></div>
+      <div id="formMessage" class="notice notice-info" hidden></div>
+      <div id="formLoading" class="notice notice-info" hidden>🔍 書誌情報を検索中…</div>
+
+      <form id="bookForm">
+        <input type="hidden" id="fieldId">
+
+        <label class="field">
+          <span>ISBN</span>
+          <div class="isbn-row">
+            <input type="text" id="fieldIsbn" placeholder="978XXXXXXXXXX（任意）" inputmode="numeric">
+            <button type="button" id="isbnSearchBtn" class="btn btn-secondary btn-sm">🔍 検索</button>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>書名 <em>*</em></span>
+          <input type="text" id="fieldTitle" required placeholder="書名">
+        </label>
+
+        <label class="field">
+          <span>著者</span>
+          <input type="text" id="fieldAuthor" placeholder="著者名">
+        </label>
+
+        <label class="field">
+          <span>出版社</span>
+          <input type="text" id="fieldPublisher" placeholder="出版社">
+        </label>
+
+        <label class="field">
+          <span>出版日</span>
+          <input type="text" id="fieldPubdate" placeholder="YYYY-MM-DD など">
+        </label>
+
+        <div class="field">
+          <span>表紙画像</span>
+          <div class="cover-row">
+            <img id="coverPreview" class="cover-preview" alt="表紙プレビュー" hidden>
+            <div class="cover-inputs">
+              <input type="text" id="fieldCover" placeholder="画像URL（任意）">
+              <label class="btn btn-ghost btn-sm file-btn">
+                📁 画像を選択
+                <input type="file" id="coverFileInput" accept="image/*" hidden>
+              </label>
+              <button type="button" id="coverClearBtn" class="btn btn-ghost btn-sm">クリア</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="meta-line" id="createdAtLine" hidden></p>
+
+        <div class="form-actions">
+          <button type="button" id="deleteBtn" class="btn btn-danger" hidden>🗑 削除</button>
+          <div class="form-actions-spacer"></div>
+          <button type="button" id="cancelFormBtn" class="btn btn-ghost">キャンセル</button>
+          <button type="submit" class="btn btn-primary">💾 保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
